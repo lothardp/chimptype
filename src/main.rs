@@ -16,6 +16,7 @@ enum Char {
     Backspace,
     Space,
     Enter,
+    Esc,
 }
 
 #[derive(Debug)]
@@ -37,7 +38,14 @@ struct WordResult {
 
 fn main() {
     loop {
-        match get_command() {
+        welcome_message();
+        let test_result = execute_test();
+        if let Ok(test_result) = test_result {
+            finish_test(&test_result);
+        } else {
+            println!("Test aborted");
+        }
+        /* match get_command() {
             Command::StartTest => {
                 println!("Starting test");
                 let test_result = execute_test();
@@ -47,37 +55,66 @@ fn main() {
                 println!("Exiting");
                 return;
             }
+        } */
+    }
+}
+
+fn welcome_message() {
+    loop {
+        println!("Welcome to the typing test");
+        println!("Press enter to start the test");
+        println!("Press esc or q to exit");
+        match read_one_char() {
+            Char::Enter => break,
+            Char::Char('q') | Char::Char('Q') | Char::Esc => {
+                println!("Exiting");
+                std::process::exit(0);
+            }
+            _ => {}
         }
     }
 }
 
 fn show_results(test_result: &TestResult) {
-    dbg!(test_result);
+    println!("Results:");
+    println!("Correct: {}", test_result.correct);
+    println!("Incorrect: {}", test_result.incorrect);
+    println!("Duration: {:?}", test_result.duration);
+    println!("WPM: {:.1}", calculate_wpm(test_result));
 }
 
-fn execute_test() -> TestResult {
+fn calculate_wpm(test_result: &TestResult) -> f32 {
+    let duration_in_seconds = test_result.duration.as_secs_f32();
+    let minutes = duration_in_seconds / 60.0;
+    let wpm = test_result.word_list.len() as f32 / minutes;
+    wpm
+}
+
+fn execute_test() -> Result<TestResult, ()> {
     let word_list = generate_word_list();
     show_word_list(&word_list);
-    let first_char = read_one_char();
-    let test_result = run_test(first_char, word_list);
-    finish_test(&test_result);
-    test_result
+    run_test(word_list)
 }
 
-fn run_test(first_char: Char, word_list: Vec<String>) -> TestResult {
-    let start_time = Instant::now();
+fn run_test(word_list: Vec<String>) -> Result<TestResult, ()> {
     let mut word_result_list: Vec<WordResult> = Vec::new();
 
-    word_result_list.push(run_word_test(&word_list[0], Some(first_char)));
+    let first_char = read_one_char();
+    let start_time = Instant::now();
+    let first_word_result = run_word_test(&word_list[0], Some(first_char))?;
+    word_result_list.push(first_word_result);
+
     for word in word_list.iter().skip(1) {
-        let word_result = run_word_test(&word, None);
+        let word_result = run_word_test(&word, None)?;
         word_result_list.push(word_result);
     }
+
     let total_duration = start_time.elapsed();
-    construct_test_result(word_list, word_result_list, total_duration)
+    Ok(construct_test_result(word_list, word_result_list, total_duration))
 }
 
 fn finish_test(test_result: &TestResult) {
+    println!("Test complete");
     show_results(test_result);
 }
 
@@ -94,7 +131,7 @@ fn construct_test_result(
     }
 }
 
-fn run_word_test(word: &str, first_char: Option<Char>) -> WordResult {
+fn run_word_test(word: &str, first_char: Option<Char>) -> Result<WordResult, ()> {
     let start_time = Instant::now();
     let mut ch = match first_char {
         Some(ch) => ch,
@@ -122,16 +159,17 @@ fn run_word_test(word: &str, first_char: Option<Char>) -> WordResult {
                 i += 1;
                 ch = read_one_char();
             }
+            Char::Esc => return Err(()),
         }
     }
     let duration = start_time.elapsed();
-    WordResult {
+    Ok(WordResult {
         word: word.to_string(),
         typed_word,
         correct,
         incorrect,
         duration,
-    }
+    })
 }
 
 fn read_one_char() -> Char {
@@ -154,7 +192,7 @@ fn read_one_char() -> Char {
             handle.flush().unwrap();
             Char::Backspace
         }
-        Some(Ok(Key::Esc)) => panic!("Escape key pressed"),
+        Some(Ok(Key::Esc)) => Char::Esc,
         _ => panic!("Error reading a key"),
     }
 }
