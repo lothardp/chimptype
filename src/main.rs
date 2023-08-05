@@ -1,9 +1,14 @@
+use std::cmp::max;
 use std::io::{Read, Write};
+use std::time::Duration;
 use std::time::Instant;
-use termion::event::Key;
+use termion::event::Key as TermionKey;
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
 use termion::{clear, cursor};
+
+mod test_state;
+use test_state::{Key, TestState};
 
 enum Command {
     StartTest,
@@ -11,26 +16,16 @@ enum Command {
 }
 
 #[derive(Debug)]
-enum Char {
-    Char(char),
-    Backspace,
-    Space,
-    Enter,
-    Esc,
-}
-
-#[derive(Debug)]
 struct TestResult {
     word_list: Vec<String>,
-    correct: u32,
-    incorrect: u32,
-    duration: std::time::Duration,
+    duration: Duration,
+    final_state: TestState,
 }
 
 #[derive(Debug)]
 struct WordResult {
     word: String,
-    typed_word: Vec<Char>,
+    typed_word: Vec<Key>,
     correct: u32,
     incorrect: u32,
     duration: std::time::Duration,
@@ -64,9 +59,9 @@ fn welcome_message() {
         println!("Welcome to the typing test");
         println!("Press enter to start the test");
         println!("Press esc or q to exit");
-        match read_one_char() {
-            Char::Enter => break,
-            Char::Char('q') | Char::Char('Q') | Char::Esc => {
+        match read_one_char(&mut std::io::stdin()) {
+            Key::Enter => break,
+            Key::Char('q') | Key::Char('Q') | Key::Esc => {
                 println!("Exiting");
                 std::process::exit(0);
             }
@@ -77,8 +72,6 @@ fn welcome_message() {
 
 fn show_results(test_result: &TestResult) {
     println!("Results:");
-    println!("Correct: {}", test_result.correct);
-    println!("Incorrect: {}", test_result.incorrect);
     println!("Duration: {:?}", test_result.duration);
     println!("WPM: {:.1}", calculate_wpm(test_result));
 }
@@ -97,20 +90,83 @@ fn execute_test() -> Result<TestResult, ()> {
 }
 
 fn run_test(word_list: Vec<String>) -> Result<TestResult, ()> {
-    let mut word_result_list: Vec<WordResult> = Vec::new();
+    let mut test_state = TestState::new(&word_list);
+    let mut stdout = std::io::stdout().into_raw_mode().unwrap();
+    let mut stdin = std::io::stdin();
+    write!(stdout, "{}", clear::All).unwrap();
+    draw(&mut stdout, &test_state);
 
-    let first_char = read_one_char();
-    let start_time = Instant::now();
-    let first_word_result = run_word_test(&word_list[0], Some(first_char))?;
-    word_result_list.push(first_word_result);
-
-    for word in word_list.iter().skip(1) {
-        let word_result = run_word_test(&word, None)?;
-        word_result_list.push(word_result);
+    while !test_state.finished {
+        let key = read_one_char(&mut stdin);
+        test_state.handle_key(key)?;
+        draw(&mut stdout, &test_state);
     }
 
-    let total_duration = start_time.elapsed();
-    Ok(construct_test_result(word_list, word_result_list, total_duration))
+    Ok(TestResult {
+        word_list,
+        duration: Duration::from_secs(0),
+        final_state: test_state,
+    })
+}
+
+fn draw<W: Write>(stdout: &mut W, test_state: &TestState) {
+    let PADDING = 30;
+    let (columns, rows) = termion::terminal_size().unwrap();
+    let width = columns - PADDING * 2;
+    let base = rows / 2 - 3;
+    let (col, mut row, mut written) = (PADDING, base, 0);
+    write!(stdout, "{}", cursor::Goto(col, row)).unwrap();
+
+    let (words, typed_words) = (&test_state.word_list, &test_state.typed_words());
+    let mut word_i = 0;
+    while word_i < words.len() {
+        let word = words.get(word_i).unwrap();
+        let empty_word = &Vec::new();
+        let typed_word = typed_words.get(word_i).unwrap_or(empty_word);
+        if written + max(word.len(), typed_word.len()) >= width.into() {
+            written = 0;
+            row += 1;
+            write!(stdout, "{}", cursor::Goto(col, row)).unwrap();
+        }
+        write_word(stdout, word, typed_word);
+        write!(stdout, " ").unwrap();
+        word_i += 1;
+    }
+    stdout.flush().unwrap();
+}
+
+fn write_word<W: Write>(stdout: &mut W, word: &[Key], typed_word: &[Key]) {
+    let mut i = 0;
+    loop {
+        let word_char = word.get(i);
+        let typed_char = typed_word.get(i);
+        match (word_char, typed_char) {
+            (Some(Key::Char(word_char)), Some(Key::Char(typed_char))) => {
+                if word_char == typed_char {
+                    write!(stdout, "{}", termion::style::Bold).unwrap();
+                    write!(stdout, "{}", termion::color::Fg(termion::color::Green),).unwrap();
+                } else {
+                    write!(stdout, "{}", termion::color::Fg(termion::color::Red),).unwrap();
+                }
+                write!(stdout, "{}", typed_char).unwrap();
+                write!(stdout, "{}", termion::style::Reset).unwrap();
+            }
+            (Some(Key::Char(word_char)), None) => {
+                write!(stdout, "{}", word_char).unwrap();
+            }
+            (None, Some(Key::Char(typed_char))) => {
+                write!(stdout, "{}", termion::color::Fg(termion::color::Red)).unwrap();
+                write!(stdout, "{}", termion::style::Underline).unwrap();
+                write!(stdout, "{}", typed_char).unwrap();
+                write!(stdout, "{}", termion::style::Reset).unwrap();
+            }
+            (None, None) => break,
+            _ => {
+                unreachable!("Only chars should get here")
+            }
+        }
+        i += 1;
+    }
 }
 
 fn finish_test(test_result: &TestResult) {
@@ -118,81 +174,14 @@ fn finish_test(test_result: &TestResult) {
     show_results(test_result);
 }
 
-fn construct_test_result(
-    word_list: Vec<String>,
-    word_result_list: Vec<WordResult>,
-    total_duration: std::time::Duration,
-) -> TestResult {
-    TestResult {
-        word_list,
-        correct: word_result_list.iter().map(|r| r.correct).sum(),
-        incorrect: word_result_list.iter().map(|r| r.incorrect).sum(),
-        duration: total_duration,
-    }
-}
 
-fn run_word_test(word: &str, first_char: Option<Char>) -> Result<WordResult, ()> {
-    let start_time = Instant::now();
-    let mut ch = match first_char {
-        Some(ch) => ch,
-        None => read_one_char(),
-    };
-    let word_chars: Vec<char> = word.chars().collect();
-    let mut typed_word = Vec::new();
-    let (mut i, mut correct, mut incorrect) = (0, 0, 0);
-    loop {
-        match ch {
-            Char::Space | Char::Enter => break,
-            Char::Backspace => {
-                typed_word.push(ch);
-                if i > 0 {
-                    i -= 1;
-                }
-                ch = read_one_char();
-            }
-            Char::Char(c) => {
-                typed_word.push(ch);
-                match word_chars.get(i) {
-                    Some(word_char) if word_char == &c => correct += 1,
-                    _ => incorrect += 1,
-                };
-                i += 1;
-                ch = read_one_char();
-            }
-            Char::Esc => return Err(()),
-        }
-    }
-    let duration = start_time.elapsed();
-    Ok(WordResult {
-        word: word.to_string(),
-        typed_word,
-        correct,
-        incorrect,
-        duration,
-    })
-}
-
-fn read_one_char() -> Char {
-    let mut stdout = std::io::stdout().into_raw_mode().unwrap();
-    match std::io::stdin().keys().next() {
-        Some(Ok(Key::Char(ch))) if ch == ' ' => {
-            stdout.write(b" ").unwrap();
-            stdout.flush().unwrap();
-            Char::Space
-        }
-        Some(Ok(Key::Char(ch))) if ch == '\n' => Char::Enter,
-        Some(Ok(Key::Char(ch))) => {
-            stdout.write(ch.to_string().as_bytes()).unwrap();
-            stdout.flush().unwrap();
-            Char::Char(ch)
-        }
-        Some(Ok(Key::Backspace)) => {
-            let mut handle = stdout.lock();
-            write!(handle, "{}{}", cursor::Left(1), clear::AfterCursor).unwrap();
-            handle.flush().unwrap();
-            Char::Backspace
-        }
-        Some(Ok(Key::Esc)) => Char::Esc,
+fn read_one_char<R: Read>(stdin: &mut R) -> Key {
+    match stdin.keys().next() {
+        Some(Ok(TermionKey::Char(ch))) if ch == ' ' => Key::Space,
+        Some(Ok(TermionKey::Char(ch))) if ch == '\n' => Key::Enter,
+        Some(Ok(TermionKey::Char(ch))) => Key::Char(ch),
+        Some(Ok(TermionKey::Backspace)) => Key::Backspace,
+        Some(Ok(TermionKey::Esc)) => Key::Esc,
         _ => panic!("Error reading a key"),
     }
 }
