@@ -1,6 +1,6 @@
 use std::cmp::max;
-use std::io::{Read, Write};
-use termion::{clear, cursor};
+use std::io::{Write};
+use termion::{cursor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
@@ -34,7 +34,7 @@ impl TestState {
     fn create_word_list(word_list: &Vec<String>) -> Vec<Vec<Key>> {
         word_list
             .iter()
-            .map(|word| word.chars().map(|ch| Key::Char(ch)).collect())
+            .map(|word| word.chars().map(Key::Char).collect())
             .collect()
     }
 
@@ -52,7 +52,7 @@ impl TestState {
     // It pops the last typed char, and if it's the first char of the word,
     // it decrements word_index (except when it's the first word)
     fn handle_backspace(&mut self) {
-        if self.word_index == 0 && self.typed_chars.len() == 0 {
+        if self.word_index == 0 && self.typed_chars.is_empty() {
             return;
         }
         let char_index = self.char_index();
