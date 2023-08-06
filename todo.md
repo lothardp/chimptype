@@ -1,15 +1,14 @@
 # TODO
 
-- Write some tests
-- Modularize better the drawing of screens
-- The screen shouldn't be replicated in every clear (maybe use alternate screens)
+- Modularize/Refactor better the drawing controllers
 - Implement a debug mode (so you can see how state changes with every key)
 - Show results (WPM, maybe a graph)
+- Write some tests
+- Languages should be loaded in compile time to global vars
 
-### Not implemented features
+### Not implemented features (yet)
 
 - Time based tests
-- Random words
 - Other languages
 - Menu view/controller
 - Account management?

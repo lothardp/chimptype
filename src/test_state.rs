@@ -93,6 +93,8 @@ impl TestState {
         }
     }
 
+    // It returns the index inside the current word of the char 
+    // that the cursor is in
     fn char_index(&self) -> usize {
         self.typed_chars
             .split(|ch| *ch == Key::Space)
