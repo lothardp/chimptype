@@ -1,10 +1,10 @@
+use rand::seq::IteratorRandom;
 use serde_json;
 use serde_json::Value;
 use std::fs::File;
 use std::io::BufReader;
 use std::io::Write;
 use std::time::Duration;
-use rand::seq::IteratorRandom;
 
 mod test_state;
 use test_state::{Key, TestState};
@@ -119,11 +119,9 @@ impl ChimpType {
             let words = words.iter().choose_multiple(&mut rand::thread_rng(), n);
             return words
                 .iter()
-                .map(|s| {
-                    match s {
-                        Value::String(s) => s.to_owned(),
-                        _ => panic!("Non string in words array"),
-                    }
+                .map(|s| match s {
+                    Value::String(s) => s.to_owned(),
+                    _ => panic!("Non string in words array"),
                 })
                 .collect();
         }

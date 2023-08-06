@@ -120,27 +120,34 @@ impl TestState {
         let width = min(columns - 10, 60);
         let padding = (columns - width) / 2;
         let base_row = rows / 2 - 3;
-        let (base_col, mut row, mut written) = (padding, base_row, 0);
+        let (base_col, mut row, mut written_in_row) = (padding, base_row, 0);
         write!(stdout, "{}", cursor::Goto(base_col, row)).unwrap();
 
         let (words, typed_words) = (&self.word_list, &self.typed_words());
         let mut word_i = 0;
+        let (mut cursor_col, mut cursor_row) = (0, 0);
         while word_i < words.len() {
             let word = words.get(word_i).unwrap();
             let empty_word = &Vec::new();
             let typed_word = typed_words.get(word_i);
             let to_write = max(word.len(), typed_word.unwrap_or(empty_word).len()) + 1;
-            if written + to_write >= width.into() {
-                written = 0;
+            if written_in_row + to_write >= width.into() {
+                written_in_row = 0;
                 row += 1;
                 write!(stdout, "{}", cursor::Goto(base_col, row)).unwrap();
             }
             let is_current_word = word_i == self.word_index;
+            if is_current_word {
+                cursor_col =
+                    written_in_row + base_col as usize + typed_word.unwrap_or(empty_word).len();
+                cursor_row = row;
+            }
             self.write_word(stdout, word, typed_word, is_current_word);
-            written += to_write;
             write!(stdout, " ").unwrap();
+            written_in_row += to_write;
             word_i += 1;
         }
+        write!(stdout, "{}", cursor::Goto(cursor_col as u16, cursor_row)).unwrap();
         stdout.flush().unwrap();
     }
 
