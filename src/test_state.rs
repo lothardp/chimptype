@@ -129,12 +129,14 @@ impl TestState {
             let word = words.get(word_i).unwrap();
             let empty_word = &Vec::new();
             let typed_word = typed_words.get(word_i).unwrap_or(empty_word);
-            if written + max(word.len(), typed_word.len()) >= width.into() {
+            let to_write = max(word.len(), typed_word.len()) + 1;
+            if written + to_write >= width.into() {
                 written = 0;
                 row += 1;
                 write!(stdout, "{}", cursor::Goto(col, row)).unwrap();
             }
             self.write_word(stdout, word, typed_word);
+            written += to_write;
             write!(stdout, " ").unwrap();
             word_i += 1;
         }
