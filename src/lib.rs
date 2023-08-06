@@ -21,6 +21,7 @@ enum State {
     Welcome,
     RunningTest(TestState),
     TestComplete(TestResult),
+    Exit,
 }
 
 impl ChimpType {
@@ -32,11 +33,19 @@ impl ChimpType {
     }
 
     pub fn start(&mut self) {
+        self.io_controller.clear_screen_raw();
         self.draw();
+        self.main_loop();
+    }
+
+    fn main_loop(&mut self) {
         loop {
             let key = self.io_controller.read_one_char();
             self.handle_key(key);
             self.draw();
+            if let State::Exit = self.state {
+                break;
+            }
         }
     }
 
@@ -47,7 +56,10 @@ impl ChimpType {
                 self.state = State::RunningTest(TestState::new(&word_list));
             }
             State::Welcome if key == Key::Esc => {
-                self.exit();
+                self.state = State::Exit;
+            }
+            State::RunningTest(_) if key == Key::Esc => {
+                self.state = State::Welcome;
             }
             State::RunningTest(ref mut test_state) => {
                 test_state.handle_key(key);
@@ -65,6 +77,9 @@ impl ChimpType {
         };
     }
 
+    // It clears the screen, then draws the current state. TODO: It would
+    // be better to only draw the parts that changed, but this is
+    // simpler for now.
     fn draw(&mut self) {
         self.io_controller.clear_screen();
         match self.state {
@@ -77,6 +92,7 @@ impl ChimpType {
             State::TestComplete(_) => {
                 self.draw_test_complete();
             }
+            _ => {}
         }
     }
 
@@ -99,10 +115,6 @@ impl ChimpType {
         words.iter().map(|s| s.to_string()).collect()
     }
 
-    fn exit(&self) {
-        std::process::exit(0);
-    }
-
     fn draw_test_complete(&mut self) {
         write!(self.io_controller.stdout, "Test complete\n\r").unwrap();
         write!(self.io_controller.stdout, "Results:").unwrap();
@@ -111,7 +123,8 @@ impl ChimpType {
                 self.io_controller.stdout,
                 "Duration: {:?}",
                 test_result.duration
-            ).unwrap();
+            )
+            .unwrap();
         }
         self.io_controller.flush();
     }

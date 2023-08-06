@@ -1,6 +1,6 @@
 use std::cmp::max;
-use std::io::{Write};
-use termion::{cursor};
+use std::io::Write;
+use termion::cursor;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
