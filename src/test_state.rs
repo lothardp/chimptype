@@ -1,4 +1,4 @@
-use std::cmp::max;
+use std::cmp::{max, min};
 use std::io::Write;
 use termion::cursor;
 
@@ -116,26 +116,27 @@ impl TestState {
     }
 
     pub fn draw<W: Write>(&self, stdout: &mut W) {
-        let PADDING = 30;
         let (columns, rows) = termion::terminal_size().unwrap();
-        let width = columns - PADDING * 2;
-        let base = rows / 2 - 3;
-        let (col, mut row, mut written) = (PADDING, base, 0);
-        write!(stdout, "{}", cursor::Goto(col, row)).unwrap();
+        let width = min(columns - 10, 60);
+        let padding = (columns - width) / 2;
+        let base_row = rows / 2 - 3;
+        let (base_col, mut row, mut written) = (padding, base_row, 0);
+        write!(stdout, "{}", cursor::Goto(base_col, row)).unwrap();
 
         let (words, typed_words) = (&self.word_list, &self.typed_words());
         let mut word_i = 0;
         while word_i < words.len() {
             let word = words.get(word_i).unwrap();
             let empty_word = &Vec::new();
-            let typed_word = typed_words.get(word_i).unwrap_or(empty_word);
-            let to_write = max(word.len(), typed_word.len()) + 1;
+            let typed_word = typed_words.get(word_i);
+            let to_write = max(word.len(), typed_word.unwrap_or(empty_word).len()) + 1;
             if written + to_write >= width.into() {
                 written = 0;
                 row += 1;
-                write!(stdout, "{}", cursor::Goto(col, row)).unwrap();
+                write!(stdout, "{}", cursor::Goto(base_col, row)).unwrap();
             }
-            self.write_word(stdout, word, typed_word);
+            let is_current_word = word_i == self.word_index;
+            self.write_word(stdout, word, typed_word, is_current_word);
             written += to_write;
             write!(stdout, " ").unwrap();
             word_i += 1;
@@ -143,37 +144,61 @@ impl TestState {
         stdout.flush().unwrap();
     }
 
-    fn write_word<W: Write>(&self, stdout: &mut W, word: &[Key], typed_word: &[Key]) {
-        let mut i = 0;
-        loop {
-            let word_char = word.get(i);
-            let typed_char = typed_word.get(i);
-            match (word_char, typed_char) {
-                (Some(Key::Char(word_char)), Some(Key::Char(typed_char))) => {
-                    if word_char == typed_char {
-                        write!(stdout, "{}", termion::style::Bold).unwrap();
-                        write!(stdout, "{}", termion::color::Fg(termion::color::Green),).unwrap();
-                    } else {
-                        write!(stdout, "{}", termion::color::Fg(termion::color::Red),).unwrap();
+    // TODO: This probably can be written way better with iterators
+    fn write_word<W: Write>(
+        &self,
+        stdout: &mut W,
+        word: &[Key],
+        typed_word: Option<&Vec<Key>>,
+        is_current_word: bool,
+    ) {
+        match typed_word {
+            None => {
+                for ch in word {
+                    if let Key::Char(ch) = ch {
+                        write!(stdout, "{}", ch).unwrap();
                     }
-                    write!(stdout, "{}", typed_char).unwrap();
-                    write!(stdout, "{}", termion::style::Reset).unwrap();
-                }
-                (Some(Key::Char(word_char)), None) => {
-                    write!(stdout, "{}", word_char).unwrap();
-                }
-                (None, Some(Key::Char(typed_char))) => {
-                    write!(stdout, "{}", termion::color::Fg(termion::color::Red)).unwrap();
-                    write!(stdout, "{}", termion::style::Underline).unwrap();
-                    write!(stdout, "{}", typed_char).unwrap();
-                    write!(stdout, "{}", termion::style::Reset).unwrap();
-                }
-                (None, None) => break,
-                _ => {
-                    unreachable!("Only chars should get here")
                 }
             }
-            i += 1;
+            Some(typed_word) => {
+                let mut i = 0;
+                loop {
+                    let word_char = word.get(i);
+                    let typed_char = typed_word.get(i);
+                    match (word_char, typed_char) {
+                        (Some(Key::Char(word_char)), Some(Key::Char(typed_char))) => {
+                            if word_char == typed_char {
+                                write!(stdout, "{}", termion::style::Bold).unwrap();
+                                write!(stdout, "{}", termion::color::Fg(termion::color::Green),)
+                                    .unwrap();
+                            } else {
+                                write!(stdout, "{}", termion::color::Fg(termion::color::Red),)
+                                    .unwrap();
+                            }
+                            write!(stdout, "{}", typed_char).unwrap();
+                            write!(stdout, "{}", termion::style::Reset).unwrap();
+                        }
+                        (Some(Key::Char(word_char)), None) => {
+                            if !is_current_word {
+                                write!(stdout, "{}", termion::style::Underline).unwrap();
+                            }
+                            write!(stdout, "{}", word_char).unwrap();
+                            write!(stdout, "{}", termion::style::Reset).unwrap();
+                        }
+                        (None, Some(Key::Char(typed_char))) => {
+                            write!(stdout, "{}", termion::color::Fg(termion::color::Red)).unwrap();
+                            write!(stdout, "{}", termion::style::Underline).unwrap();
+                            write!(stdout, "{}", typed_char).unwrap();
+                            write!(stdout, "{}", termion::style::Reset).unwrap();
+                        }
+                        (None, None) => break,
+                        _ => {
+                            unreachable!("Only chars should get here")
+                        }
+                    }
+                    i += 1;
+                }
+            }
         }
     }
 }
